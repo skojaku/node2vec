@@ -14,13 +14,15 @@ class NegativeSamplingDataset(Dataset):
         seqs,
         window_length,
         epochs=1,
-        buffer_size=100000,
+        buffer_size=1000,
+        num_negative_samples = 5,
         context_window_type="double",
     ):
         self.window_length = window_length
         # Counter and Memory
         self.n_sampled = 0
         self.sample_id = 0
+        self.neg_sample_counter = 0
         self.scanned_node_id = 0
         self.buffer_size = buffer_size
         self.contexts = None
@@ -29,12 +31,13 @@ class NegativeSamplingDataset(Dataset):
         self.seqs = seqs
         self.epochs = epochs
         self.context_window_type = context_window_type
+        self.num_negative_samples = num_negative_samples
 
         # Count sequence elements
         counter = Counter()
         self.n_samples = 0
         for seq in seqs:
-            counter.update(seq)
+            counter.update(np.array(seq))
             n_pairs = count_center_context_pairs(
                 window_length, len(seq), context_window_type
             )
@@ -45,10 +48,9 @@ class NegativeSamplingDataset(Dataset):
             self.ele_null_prob[k] = v
         self.ele_null_prob /= np.sum(self.ele_null_prob)
         self.n_seqs = len(seqs)
-        self.seq_order = np.random.choice(self.n_seqs, self.n_seqs, replace=False)
-        self.seq_iter = 0
 
         # Initialize
+        self.iter = iter(seqs)
         self._generate_samples()
 
     def __len__(self):
@@ -58,24 +60,36 @@ class NegativeSamplingDataset(Dataset):
         if self.sample_id == self.n_sampled:
             self._generate_samples()
 
-        center = self.centers[self.sample_id]
-        cont = self.contexts[self.sample_id].astype(np.int64)
-        rand_cont = self.random_contexts[self.sample_id].astype(np.int64)
+        if self.neg_sample_counter == 0:
+            center = self.centers[self.sample_id]
+            cont = self.contexts[self.sample_id].astype(np.int64)
+            y = 1
+            self.neg_sample_counter=self.num_negative_samples
+            return center, cont, 1
+        else:
+            center = self.centers[self.sample_id]
+            cont = np.random.choice(
+                self.n_elements, p=self.ele_null_prob
+            )
+            y = -1
+            self.neg_sample_counter-=1 # decrement the counter
+            if self.neg_sample_counter == 0:
+                self.sample_id += 1
 
-        self.sample_id += 1
-
-        return center, cont, rand_cont
+        return center, cont, y
 
     def _generate_samples(self):
         self.centers = []
         self.contexts = []
-        for i in range(self.buffer_size):
-            self.seq_iter += 1
-            if self.seq_iter >= self.n_seqs:
-                self.seq_iter = self.seq_iter % self.n_seqs
-            seq_id = self.seq_order[self.seq_iter]
+        for _ in range(self.buffer_size):
+
+            seq = next(self.iter, None)
+            if seq is None:
+                self.iter = iter(self.seqs)
+                seq = next(self.iter, None)
+
             cent, cont = _get_center_context_pairs(
-                np.array(self.seqs[seq_id]),
+                np.array(seq),
                 self.window_length,
                 self.context_window_type,
             )
@@ -85,12 +99,29 @@ class NegativeSamplingDataset(Dataset):
             np.concatenate(self.centers),
             np.concatenate(self.contexts),
         )
-
-        self.random_contexts = np.random.choice(
-            self.n_elements, size=len(self.centers), p=self.ele_null_prob, replace=True
-        )
         self.n_sampled = len(self.centers)
         self.sample_id = 0
+
+class ModularityEmbeddingDataset(NegativeSamplingDataset):
+    def __init__(self, **params):
+        super(ModularityEmbeddingDataset, self).__init__(**params)
+        self.center, self.cont, self.y = None, None, None
+
+    def __getitem__(self, idx):
+        pow = 1
+        if self.center is None:
+            center, cont, y = super(ModularityEmbeddingDataset, self).__getitem__(idx)
+            if y == 1:
+                self.center, self.cont, self.y = center, cont, y
+                center = np.random.choice(self.n_elements)
+                cont = np.random.choice(self.n_elements)
+                y = -0.5
+                pow = 2
+        else:
+            center, cont, y = self.center, self.cont, self.y
+            self.center, self.cont, self.y = None, None, None
+        return center, cont, y, pow
+
 
 
 @njit(nogil=True)

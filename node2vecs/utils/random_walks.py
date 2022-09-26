@@ -2,6 +2,9 @@ import numpy as np
 from scipy import sparse
 from numba import njit
 from collections.abc import Iterable
+from torch.utils.data import Dataset
+
+
 
 #
 # Walk sampler
@@ -17,10 +20,12 @@ class RandomWalkSampler:
         >>> print(walk) # [12, 11, 10, 9, ...]
     """
 
-    def __init__(self, adjmat, walk_length=40, p=1, q=1):
+    def __init__(self, adjmat, walk_length=40, num_walks = 10, p=1, q=1):
         """Random Walk Sampler.
         :param adjmat: Adjacency matrix of the graph.
         :type adjmat: scipy sparse matrix format (csr).
+        :param num_walks: number of walkers per node, defaults to 10
+        :type num_walks: int, optional
         :param walk_length: length per walk, defaults to 40
         :type walk_length: int, optional
         :param p: node2vec parameter p (1/p is the weights of the edge to previously visited node), defaults to 1
@@ -29,12 +34,13 @@ class RandomWalkSampler:
         :type q: float, optional
         """
         self.walk_length = walk_length
+        self.num_walks = num_walks
         self.p = p
         self.q = q
         self.weighted = (~np.isclose(np.min(adjmat.data), 1)) or (
             ~np.isclose(np.max(adjmat.data), 1)
         )
-        self.n_nodes = adjmat.shape[0]
+        self.num_nodes = adjmat.shape[0]
 
         adjmat.sort_indices()
         self.indptr = adjmat.indptr.astype(np.int64)
@@ -43,16 +49,27 @@ class RandomWalkSampler:
             data = adjmat.data / adjmat.sum(axis=1).A1.repeat(np.diff(self.indptr))
             self.data = _csr_row_cumsum(self.indptr, data)
 
-    def sampling(self, start = None, n_walks = 1):
+    def __iter__(self):
+        for i in range(self.num_walks):
+            for node_id in np.random.choice(self.num_nodes, size=self.num_nodes, replace=False):
+                yield self._sampling(node_id).tolist()
+
+    def __len__(self):
+        return self.num_walks * self.num_walks
+
+    def sampling(self, start = None, num_walks = None):
+
+        if num_walks is None:
+            num_walks = self.num_walks
 
         if start is None:
             start = np.arange(self.n_nodes, dtype=np.int64)
 
         if isinstance(start, Iterable):
            # iterable
-           walks = [self._sampling(s) for _ in range(n_walks) for s in start]
+           walks = [self._sampling(s) for _ in range(num_walks) for s in start]
         else:
-           walks = [self._sampling(start) for _ in range(n_walks)]
+           walks = [self._sampling(start) for _ in range(num_walks)]
         return walks
 
     def _sampling(self, start):
