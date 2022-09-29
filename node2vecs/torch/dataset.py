@@ -12,13 +12,14 @@ class NegativeSamplingDataset(Dataset):
     def __init__(
         self,
         seqs,
-        window_length,
+        window,
         epochs=1,
         buffer_size=1000,
-        num_negative_samples = 5,
+        num_negative_samples=5,
         context_window_type="double",
+        ns_exponent=1,
     ):
-        self.window_length = window_length
+        self.window = window
         # Counter and Memory
         self.n_sampled = 0
         self.sample_id = 0
@@ -38,14 +39,13 @@ class NegativeSamplingDataset(Dataset):
         self.n_samples = 0
         for seq in seqs:
             counter.update(np.array(seq))
-            n_pairs = count_center_context_pairs(
-                window_length, len(seq), context_window_type
-            )
+            n_pairs = count_center_context_pairs(window, len(seq), context_window_type)
             self.n_samples += n_pairs
         self.n_elements = int(max(counter.keys()) + 1)
         self.ele_null_prob = np.zeros(self.n_elements)
         for k, v in counter.items():
             self.ele_null_prob[k] = v
+        self.ele_null_prob = np.power(self.ele_null_prob, ns_exponent)
         self.ele_null_prob /= np.sum(self.ele_null_prob)
         self.n_seqs = len(seqs)
 
@@ -64,15 +64,13 @@ class NegativeSamplingDataset(Dataset):
             center = self.centers[self.sample_id]
             cont = self.contexts[self.sample_id].astype(np.int64)
             y = 1
-            self.neg_sample_counter=self.num_negative_samples
+            self.neg_sample_counter = self.num_negative_samples
             return center, cont, 1
         else:
             center = self.centers[self.sample_id]
-            cont = np.random.choice(
-                self.n_elements, p=self.ele_null_prob
-            )
+            cont = np.random.choice(self.n_elements, p=self.ele_null_prob)
             y = -1
-            self.neg_sample_counter-=1 # decrement the counter
+            self.neg_sample_counter -= 1  # decrement the counter
             if self.neg_sample_counter == 0:
                 self.sample_id += 1
 
@@ -90,7 +88,7 @@ class NegativeSamplingDataset(Dataset):
 
             cent, cont = _get_center_context_pairs(
                 np.array(seq),
-                self.window_length,
+                self.window,
                 self.context_window_type,
             )
             self.centers.append(cent)
@@ -101,6 +99,7 @@ class NegativeSamplingDataset(Dataset):
         )
         self.n_sampled = len(self.centers)
         self.sample_id = 0
+
 
 class ModularityEmbeddingDataset(NegativeSamplingDataset):
     def __init__(self, **params):
@@ -123,17 +122,16 @@ class ModularityEmbeddingDataset(NegativeSamplingDataset):
         return center, cont, y, pow
 
 
-
 @njit(nogil=True)
-def count_center_context_pairs(window_length, seq_len, context_window_type):
+def count_center_context_pairs(window, seq_len, context_window_type):
     # Count the number of center-context pairs.
     # Suppose that we sample, for each center word, a context word that proceeds the center k-words.
     # There are T-k words in the sequence, so that the number of pairs is given by summing this over k upto min(T-1, L), i.e.,
     # 2 \sum_{k=1}^{min(T-1, L)} (T-k)
     # where we cap the upper range to T-1 in case that the window covers the entire sentence, and
     # we double the sum because the word window extends over both proceeding and succeeding words.
-    min_window_length = np.minimum(window_length, seq_len - 1)
-    n = 2 * min_window_length * seq_len - min_window_length * (min_window_length + 1)
+    min_window = np.minimum(window, seq_len - 1)
+    n = 2 * min_window * seq_len - min_window * (min_window + 1)
     if context_window_type == "double":
         return int(n)
     else:
@@ -141,7 +139,7 @@ def count_center_context_pairs(window_length, seq_len, context_window_type):
 
 
 @njit(nogil=True)
-def _get_center_context_pairs(seq, window_length, context_window_type):
+def _get_center_context_pairs(seq, window, context_window_type):
     """Get center-context pairs from sequence.
     :param seq: Sequence
     :type seq: numpy array
@@ -151,24 +149,20 @@ def _get_center_context_pairs(seq, window_length, context_window_type):
     :rtype: tuple
     """
     n_seq = len(seq)
-    n_pairs = count_center_context_pairs(window_length, n_seq, context_window_type)
+    n_pairs = count_center_context_pairs(window, n_seq, context_window_type)
     centers = -np.ones(n_pairs, dtype=np.int64)
     contexts = -np.ones(n_pairs, dtype=np.int64)
     idx = 0
-    wstart, wend = 0, 2 * window_length + 1
+    wstart, wend = 0, 2 * window + 1
     if context_window_type == "suc":
-        wstart = window_length + 1
+        wstart = window + 1
     if context_window_type == "prec":
-        wend = window_length
+        wend = window
 
     for i in range(n_seq):
         for j in range(wstart, wend):
-            if (
-                (j != window_length)
-                and (i - window_length + j >= 0)
-                and (i - window_length + j < n_seq)
-            ):
+            if (j != window) and (i - window + j >= 0) and (i - window + j < n_seq):
                 centers[idx] = seq[i]
-                contexts[idx] = seq[i - window_length + j]
+                contexts[idx] = seq[i - window + j]
                 idx += 1
     return centers, contexts

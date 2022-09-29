@@ -3,6 +3,7 @@ from tqdm import tqdm
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
+
 def train(
     model,
     dataset,
@@ -11,6 +12,7 @@ def train(
     device="cpu",
     checkpoint=10000,
     outputfile=None,
+    learning_rate=1e-3,
 ):
     # Set the device parameter if not specified
     if device is None:
@@ -33,7 +35,7 @@ def train(
     # Training
     focal_params = filter(lambda p: p.requires_grad, model.parameters())
     # optim = Adam(focal_params, lr=0.003)
-    optim = AdamW(focal_params)
+    optim = AdamW(focal_params, lr=learning_rate)
 
     pbar = tqdm(dataloader, miniters=100, total=len(dataloader))
     it = 0
@@ -60,7 +62,7 @@ def train(
         if (it + 1) % checkpoint == 0:
             if outputfile is not None:
                 torch.save(model.state_dict(), outputfile)
-        it+=1
+        it += 1
 
     if outputfile is not None:
         torch.save(model.state_dict(), outputfile)
