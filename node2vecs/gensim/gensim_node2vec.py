@@ -1,5 +1,5 @@
 import numpy as np
-from node2vecs.node2vec import Node2Vec
+from ..node2vec import Node2Vec
 import gensim
 from tqdm import tqdm
 
