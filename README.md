@@ -60,3 +60,18 @@ emb = model.embedding()
 ```
 
 ## PytorchGeometric Implementation
+
+```python
+import node2vecs
+dim = 32 # embedding dimension
+model = node2vecs.PYGNode2Vec(vector_size = dim)
+model.fit(A) # adjacency matrix in scipy csr_matrix format
+emb = model.transform()
+```
+
+
+## Wrapper for other repositories
+
+### node2vec
+
+### fastnode2vec
