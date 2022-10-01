@@ -35,7 +35,7 @@ class PYGNode2Vec(Node2Vec):
             batch_size=128, shuffle=True, num_workers=4
         )  # data loader to speed the train
         optimizer = torch.optim.SparseAdam(
-            list(model.parameters()), lr=0.01
+            list(model.parameters()), lr=self.alpha
         )  # initzialize the optimizer
 
         for _ in range(self.epochs):
