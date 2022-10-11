@@ -13,9 +13,9 @@ class GensimNode2Vec(Node2Vec):
             "epochs": self.epochs,
             "workers": 4,
         }
-        if params is not None:
-            for k, v in params.items():
-                self.w2vparams[k] = v
+#        if params is not None:
+#            for k, v in params.items():
+#                self.w2vparams[k] = v
 
     def update_embedding(self, dim):
         # Update the dimension and train the model

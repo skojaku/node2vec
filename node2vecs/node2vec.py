@@ -40,6 +40,7 @@ class Node2Vec:
             "p": p,
             "q": q,
             "walk_length": walk_length,
+            "num_walks":num_walks,
         }
         self.ns_exponent = ns_exponent
         self.alpha = alpha
