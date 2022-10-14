@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# @Author: Sadamori Kojaku
+# @Date:   2022-10-14 14:33:29
+# @Last Modified by:   Sadamori Kojaku
+# @Last Modified time: 2022-10-14 14:55:53
 import numpy as np
 from collections import Counter
 import numpy as np
@@ -68,7 +73,9 @@ class NegativeSamplingDataset(Dataset):
             return center, cont, 1
         else:
             center = self.centers[self.sample_id]
-            cont = np.random.choice(self.n_elements, p=self.ele_null_prob)
+            cont = self.random_contexts[
+                self.sample_id * self.num_negative_samples + self.neg_sample_counter - 1
+            ]
             y = -1
             self.neg_sample_counter -= 1  # decrement the counter
             if self.neg_sample_counter == 0:
@@ -96,6 +103,12 @@ class NegativeSamplingDataset(Dataset):
         self.centers, self.contexts = (
             np.concatenate(self.centers),
             np.concatenate(self.contexts),
+        )
+
+        self.random_contexts = np.random.choice(
+            self.n_elements,
+            p=self.ele_null_prob,
+            size=len(self.contexts) * self.num_negative_samples,
         )
         self.n_sampled = len(self.centers)
         self.sample_id = 0
