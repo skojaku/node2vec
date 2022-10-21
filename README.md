@@ -34,7 +34,7 @@ import numpy as np
 
 n_nodes = A.shape[0]
 dim = 32
-        self.noise_sampler.fit(net)
+self.noise_sampler.fit(net)
 
 # Specify the sentense generator. 
 # The sentence generator has ``sampling'' method which 
