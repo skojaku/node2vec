@@ -34,7 +34,7 @@ import numpy as np
 
 n_nodes = A.shape[0]
 dim = 32
-self.noise_sampler.fit(net)
+
 
 # Specify the sentense generator. 
 # The sentence generator has ``sampling'' method which 
@@ -48,6 +48,7 @@ sampler = node2vecs.RandomWalkSampler(A, walk_length = 80)
 # utils.node_sampler has different noise sampler.
 # See residual2vec paper.
 noise_sampler = node2vecs.ConfigModelNodeSampler(ns_exponent=1.0)
+noise_sampler.fit(A)
 
 # Word2Vec model
 model = node2vecs.Word2Vec(vocab_size = n_nodes, embedding_size= dim, padding_idx = n_nodes)
