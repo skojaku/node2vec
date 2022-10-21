@@ -62,7 +62,7 @@ dataset = TripletDataset(
     noise_sampler=noise_sampler,
     padding_id=n_nodes,
     buffer_size=10e4,
-    context_window_type="double", # we can limit the window to cover either side of center words.
+    context_window_type="double", # we can limit the window to cover either side of center words. `context_window_type="double"` specifies a context window that extends both left and right of a focal node. context_window_type="left" or ="right" specifies that the window extends left or right, respectively.
     epochs=5, # number of epochs
     negative=1, # number of negative node per context
     p = 1, # (inverse) weight for the probability of backtracking walks 
