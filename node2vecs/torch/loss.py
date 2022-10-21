@@ -1,59 +1,76 @@
+# -*- coding: utf-8 -*-
+# @Author: Sadamori Kojaku
+# @Date:   2022-10-14 14:33:29
+# @Last Modified by:   Sadamori Kojaku
+# @Last Modified time: 2022-10-19 12:59:28
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from enum import Enum
-
-#
-# Distance metric
-#
-class DistanceMetrics(Enum):
-    """
-    The metric for the loasses
-    """
-
-    EUCLIDEAN = lambda x, y: F.pairwise_distance(x, y, p=2)
-    COSINE = lambda x, y: 1 - F.cosine_similarity(x, y)
-    ANGULAR = lambda x, y: torch.arccos((1 - 1e-2) * F.cosine_similarity(x, y))
-    DOTSIM = lambda x, y: -(x * y).sum(dim=1)
-
-    def is_scale_invariant(dist_metric):
-        return torch.isclose(
-            dist_metric(torch.ones(1, 2), torch.ones(1, 2)),
-            dist_metric(torch.ones(1, 2), 2 * torch.ones(1, 2)),
-        )
 
 #
 # Loss function
 #
-class TripletLoss(nn.Module):
-    def __init__(self, model, dist_metric=DistanceMetrics.DOTSIM, with_logsigmoid=True):
-        super(TripletLoss, self).__init__()
-        self.model = model
-        self.weights = None
-        self.dist_func = dist_metric
+class Node2VecTripletLoss(nn.Module):
+    def __init__(self, n_neg):
+        super(Node2VecTripletLoss, self).__init__()
+        self.n_neg = n_neg
         self.logsigmoid = nn.LogSigmoid()
-        self.with_logsigmoid = with_logsigmoid
 
-    def forward(self, iword, oword, y):
-        ivectors = self.model.forward_i(iword)
-        ovectors = self.model.forward_o(oword)
+    def forward(self, model, iwords, owords, nwords):
+        ivectors = model.forward_i(iwords).unsqueeze(2)
+        ovectors = model.forward_o(owords)
+        nvectors = model.forward_o(nwords).neg()
+        oloss = self.logsigmoid(torch.bmm(ovectors, ivectors).squeeze()).mean(dim=1)
+        nloss = (
+            self.logsigmoid(torch.bmm(nvectors, ivectors).squeeze())
+            .view(-1, owords.size()[1], self.n_neg)
+            .sum(dim=2)
+            .mean(dim=1)
+        )
+        return -(oloss + nloss).mean()
 
-        loss = -self.dist_func(ivectors, ovectors) * y
-        if self.with_logsigmoid:
-            loss = self.logsigmoid(loss)
-        return -(loss).mean()
+
+class ModularityTripletLoss(nn.Module):
+    def __init__(self, n_neg):
+        super(ModularityTripletLoss, self).__init__()
+        self.n_neg = n_neg
+        self.logsigmoid = nn.LogSigmoid()
+
+    def forward(self, model, iwords, owords, nwords, base_iwords, base_owords):
+        ivectors = model.forward_i(iwords).unsqueeze(2)
+        ovectors = model.forward_o(owords)
+        nvectors = model.forward_o(nwords).neg()
+
+        base_ivectors = model.forward_i(base_iwords).unsqueeze(2)
+        base_ovectors = model.forward_o(base_owords)
+
+        oloss = torch.bmm(ovectors, ivectors).squeeze().mean(dim=1)
+        nloss = (
+            torch.bmm(nvectors, ivectors)
+            .squeeze()
+            .view(-1, owords.size()[1], self.n_neg)
+            .sum(dim=2)
+            .mean(dim=1)
+        )
+
+        base_loss = torch.bmm(base_ovectors, base_ivectors).squeeze().mean(dim=1)
+
+        loss = -(oloss + nloss - 0.5 * torch.pow(base_loss, 2)).mean()
+
+        return loss
 
 
-class ModularityTripletLoss(TripletLoss):
-    def __init__(self, **params):
-        super(ModularityTripletLoss, self).__init__(**params)
-
-    def forward(self, iword, oword, y, pcoef):
-        ivectors = self.model.forward_i(iword)
-        ovectors = self.model.forward_o(oword)
-
-        loss = -self.dist_func(ivectors, ovectors) * y
-        if self.with_logsigmoid:
-            loss = self.logsigmoid(loss)
-        loss = torch.pow(loss, pcoef)
-        return -(loss).mean()
+# class ModularityTripletLoss(TripletLoss):
+#    def __init__(self, **params):
+#        super(ModularityTripletLoss, self).__init__(**params)
+#
+#    def forward(self, iword, oword, y, pcoef):
+#        ivectors = self.model.forward_i(iword)
+#        ovectors = self.model.forward_o(oword)
+#
+#        loss = -self.dist_func(ivectors, ovectors).squeeze()
+#        # if self.with_logsigmoid:
+#        #    loss = self.logsigmoid(loss)
+#        loss = torch.pow(loss, pcoef) * y.squeeze()
+#        return -(loss).mean()
+#

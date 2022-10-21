@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# @Author: Sadamori Kojaku
+# @Date:   2022-10-14 14:33:29
+# @Last Modified by:   Sadamori Kojaku
+# @Last Modified time: 2022-10-18 07:15:16
 import numpy as np
 from ..node2vec import Node2Vec
 import gensim
@@ -12,10 +17,14 @@ class GensimNode2Vec(Node2Vec):
             "min_count": 0,
             "epochs": self.epochs,
             "workers": 4,
+            "negative": self.negative,
+            "alpha": self.alpha,
+            "ns_exponent": self.ns_exponent,
         }
-#        if params is not None:
-#            for k, v in params.items():
-#                self.w2vparams[k] = v
+
+    #        if params is not None:
+    #            for k, v in params.items():
+    #                self.w2vparams[k] = v
 
     def update_embedding(self, dim):
         # Update the dimension and train the model
@@ -26,9 +35,14 @@ class GensimNode2Vec(Node2Vec):
         def pbar(it):
             return tqdm(it, desc="Training", total=self.num_walks * self.num_nodes)
 
-        self.model = gensim.models.Word2Vec(
-            sentences=pbar(self.sampler), **self.w2vparams
-        )
+        starting_nodes = np.kron(
+            np.arange(self.num_nodes),
+            np.ones(self.num_walks),
+        ).astype(np.int64)
+        np.random.shuffle(starting_nodes)
+
+        seqs = self.sampler.sampling(starting_nodes).tolist()
+        self.model = gensim.models.Word2Vec(sentences=pbar(seqs), **self.w2vparams)
 
         num_nodes = len(self.model.wv.index_to_key)
         self.in_vec = np.zeros((num_nodes, dim))

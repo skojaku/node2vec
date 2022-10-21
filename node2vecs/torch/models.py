@@ -1,71 +1,70 @@
+# -*- coding: utf-8 -*-
+# @Author: Sadamori Kojaku
+# @Date:   2022-10-14 14:33:29
+# @Last Modified by:   Sadamori Kojaku
+# @Last Modified time: 2022-10-18 22:41:39
+"""Word2Vec.
+This module is a modified version of the Word2Vec module in
+https://github.com/theeluwin/pytorch-sgn
+"""
+import numpy as np
 import torch
 import torch.nn as nn
 from torch import FloatTensor, LongTensor
 
-#
-# Embedding model
-#
+import numpy as np
+import torch
+import torch.nn as nn
+from torch import FloatTensor, LongTensor
+
+
 class Word2Vec(nn.Module):
-    def __init__(self, n_nodes, dim, normalize=False):
+    def __init__(self, vocab_size, embedding_size, padding_idx):
         super(Word2Vec, self).__init__()
-        # Layers
-        self.ivectors = torch.nn.Embedding(n_nodes, dim, dtype=torch.float)
-        self.ovectors = torch.nn.Embedding(n_nodes, dim, dtype=torch.float)
-        self.n_nodes = n_nodes
-        # Parameters
-        self.ovectors.weight = nn.Parameter(
-            torch.cat(
-                [
-                    torch.zeros(1, dim),
-                    FloatTensor(n_nodes, dim).uniform_(-0.5 / dim, 0.5 / dim),
-                ]
-            )
+        self.vocab_size = vocab_size
+        self.embedding_size = embedding_size
+        self.ivectors = nn.Embedding(
+            self.vocab_size + 1,
+            self.embedding_size,
+            padding_idx=padding_idx,
+            sparse=True,
         )
-        self.ivectors.weight = nn.Parameter(
-            torch.cat(
-                [
-                    torch.zeros(1, dim),
-                    FloatTensor(n_nodes, dim).uniform_(-0.5 / dim, 0.5 / dim),
-                ]
-            )
+        self.ovectors = nn.Embedding(
+            self.vocab_size + 1,
+            self.embedding_size,
+            padding_idx=padding_idx,
+            sparse=True,
         )
+        torch.nn.init.uniform_(
+            self.ovectors.weight, -0.5 / embedding_size, 0.5 / embedding_size
+        )
+        torch.nn.init.uniform_(
+            self.ivectors.weight, -0.5 / embedding_size, 0.5 / embedding_size
+        )
+        # nn.init.xavier_uniform_(self.ivectors.weight)
+        # nn.init.xavier_uniform_(self.ovectors.weight)
 
     def forward(self, data):
-        x = self.ivectors(data)
-        if self.training is False:
-            if self.ivectors.weight.is_cuda:
-                return x.detach().cpu().numpy()
-            else:
-                return x.detach().numpy()
-        else:
-            return x
+        return self.forward_i(data)
 
     def forward_i(self, data):
-        x = self.ivectors(data)
-        if self.training is False:
-            if self.ivectors.weight.is_cuda:
-                return x.detach().cpu().numpy()
-            else:
-                return x.detach().numpy()
-        else:
-            return x
+        # v = LongTensor(data)
+        # v = v.cuda() if self.ivectors.weight.is_cuda else v
+        return self.ivectors(data)
 
     def forward_o(self, data):
-        x = self.ovectors(data)
-        if self.training is False:
-            if self.ovectors.weight.is_cuda:
-                return x.detach().cpu().numpy()
-            else:
-                return x.detach().numpy()
-        else:
-            return x
+        # v = LongTensor(data)
+        # v = v.cuda() if self.ovectors.weight.is_cuda else v
+        return self.ovectors(data)
 
-    def embedding(self, data=None, return_out_vector=False):
-        """Generate an embedding. If data is None, generate an embedding of all noddes"""
-        if data is None:
-            data = torch.arange(self.n_nodes)
-        if return_out_vector:
-            emb = self.forward_i(data)
+    def embedding(self, return_out_vector=False):
+        if return_out_vector is False:
+            if self.ivectors.weight.is_cuda:
+                return self.ivectors.weight.data.cpu().numpy()[: self.vocab_size]
+            else:
+                return self.ivectors.weight.data.numpy()[: self.vocab_size]
         else:
-            emb = self.forward_o(data)
-        return emb
+            if self.ovectors.weight.is_cuda:
+                return self.ovectors.weight.data.cpu().numpy()[: self.vocab_size]
+            else:
+                return self.ovectors.weight.data.numpy()[: self.vocab_size]

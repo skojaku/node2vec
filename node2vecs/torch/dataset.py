@@ -2,180 +2,212 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-14 14:55:53
-import numpy as np
-from collections import Counter
+# @Last Modified time: 2022-10-19 13:09:54
+import random
+
 import numpy as np
 from numba import njit
-import numpy as np
 from torch.utils.data import Dataset
 
-#
-# Triplet sampler
-#
-class NegativeSamplingDataset(Dataset):
+from node2vecs.utils.random_walks import RandomWalkSampler
+
+
+class TripletDataset(Dataset):
+    """Dataset for training word2vec with negative sampling."""
+
     def __init__(
         self,
-        seqs,
-        window,
+        adjmat,
+        num_walks,
+        window_length,
+        noise_sampler,
+        padding_id,
+        walk_length=40,
         epochs=1,
-        buffer_size=1000,
-        num_negative_samples=5,
+        p=1.0,
+        q=1.0,
         context_window_type="double",
-        ns_exponent=1,
+        buffer_size=100000,
+        negative=5,
     ):
-        self.window = window
+        """Dataset for training word2vec with negative sampling.
+        :param adjmat: Adjacency matrix of the graph.
+        :type adjmat: scipy sparse matrix format (csr).
+        :param num_walks: Number of random walkers per node
+        :type num_walks: int
+        :param window_length: length of the context window
+        :type window_length: int
+        :param noise_sampler: Noise sampler
+        :type noise_sampler: NodeSampler
+        :param padding_id: Index of the padding node
+        :type padding_id: int
+        :param walk_length: length per walk, defaults to 40
+        :type walk_length: int, optional
+        :param p: node2vec parameter p (1/p is the weights of the edge to previously visited node), defaults to 1
+        :type p: float, optional
+        :param q: node2vec parameter q (1/q) is the weights of the edges to nodes that are not directly connected to the previously visted node, defaults to 1
+        :type q: float, optional
+        :param context_window_type: The type of context window. `context_window_type="double"` specifies a context window that extends both left and right of a focal node. context_window_type="left" and ="right" specifies that extends left and right, respectively.
+        :type context_window_type: str, optional
+        :param buffer_size: Buffer size for sampled center and context pairs, defaults to 10000
+        :type buffer_size: int, optional
+        """
+        self.negative = negative
+        self.adjmat = adjmat
+        self.num_walks = num_walks
+        self.window_length = window_length
+        self.noise_sampler = noise_sampler
+        self.walk_length = walk_length
+        self.padding_id = padding_id
+        self.epochs = epochs
+        self.context_window_type = {"double": 0, "left": -1, "right": 1}[
+            context_window_type
+        ]
+        self.rw_sampler = RandomWalkSampler(
+            adjmat, walk_length=walk_length, p=p, q=q, padding_id=padding_id
+        )
+        self.node_order = np.random.choice(
+            adjmat.shape[0], adjmat.shape[0], replace=False
+        )
+        self.n_nodes = adjmat.shape[0]
+
+        self.ave_deg = adjmat.sum() / adjmat.shape[0]
+
         # Counter and Memory
         self.n_sampled = 0
         self.sample_id = 0
-        self.neg_sample_counter = 0
         self.scanned_node_id = 0
         self.buffer_size = buffer_size
         self.contexts = None
         self.centers = None
         self.random_contexts = None
-        self.seqs = seqs
-        self.epochs = epochs
-        self.context_window_type = context_window_type
-        self.num_negative_samples = num_negative_samples
-
-        # Count sequence elements
-        counter = Counter()
-        self.n_samples = 0
-        for seq in seqs:
-            counter.update(np.array(seq))
-            n_pairs = count_center_context_pairs(window, len(seq), context_window_type)
-            self.n_samples += n_pairs
-        self.n_elements = int(max(counter.keys()) + 1)
-        self.ele_null_prob = np.zeros(self.n_elements)
-        for k, v in counter.items():
-            self.ele_null_prob[k] = v
-        self.ele_null_prob = np.power(self.ele_null_prob, ns_exponent)
-        self.ele_null_prob /= np.sum(self.ele_null_prob)
-        self.n_seqs = len(seqs)
 
         # Initialize
-        self.iter = iter(seqs)
         self._generate_samples()
 
     def __len__(self):
-        return self.n_samples * self.epochs
+        return self.epochs * self.n_nodes * self.num_walks * self.walk_length
 
     def __getitem__(self, idx):
         if self.sample_id == self.n_sampled:
             self._generate_samples()
 
-        if self.neg_sample_counter == 0:
-            center = self.centers[self.sample_id]
-            cont = self.contexts[self.sample_id].astype(np.int64)
-            y = 1
-            self.neg_sample_counter = self.num_negative_samples
-            return center, cont, 1
-        else:
-            center = self.centers[self.sample_id]
-            cont = self.random_contexts[
-                self.sample_id * self.num_negative_samples + self.neg_sample_counter - 1
-            ]
-            y = -1
-            self.neg_sample_counter -= 1  # decrement the counter
-            if self.neg_sample_counter == 0:
-                self.sample_id += 1
+        center = self.centers[self.sample_id].astype(np.int64)
+        cont = self.contexts[self.sample_id, :].astype(np.int64)
+        rand_cont = self.random_contexts[self.sample_id, :].astype(np.int64)
 
-        return center, cont, y
+        self.sample_id += 1
+
+        return center, cont, rand_cont
 
     def _generate_samples(self):
-        self.centers = []
-        self.contexts = []
-        for _ in range(self.buffer_size):
-
-            seq = next(self.iter, None)
-            if seq is None:
-                self.iter = iter(self.seqs)
-                seq = next(self.iter, None)
-
-            cent, cont = _get_center_context_pairs(
-                np.array(seq),
-                self.window,
-                self.context_window_type,
-            )
-            self.centers.append(cent)
-            self.contexts.append(cont)
-        self.centers, self.contexts = (
-            np.concatenate(self.centers),
-            np.concatenate(self.contexts),
+        next_scanned_node_id = np.minimum(
+            self.scanned_node_id + self.buffer_size, self.n_nodes
+        )
+        walks = self.rw_sampler.sampling(
+            self.node_order[self.scanned_node_id : next_scanned_node_id]
+        )
+        self.centers, self.contexts = _get_center_context(
+            context_window_type=self.context_window_type,
+            walks=walks,
+            n_walks=walks.shape[0],
+            walk_len=walks.shape[1],
+            window_length=self.window_length,
+            padding_id=self.padding_id,
+        )
+        s = self.centers != self.padding_id
+        self.centers, self.contexts = self.centers[s], self.contexts[s, :]
+        self.random_contexts = np.hstack(
+            [
+                self.noise_sampler.sampling(
+                    center_nodes=self.centers,
+                    context_nodes=self.contexts,
+                    # padding_id=self.padding_id,
+                ).reshape((-1, 1))
+                for _ in range(self.negative * self.contexts.shape[1])
+            ]
         )
 
-        self.random_contexts = np.random.choice(
-            self.n_elements,
-            p=self.ele_null_prob,
-            size=len(self.contexts) * self.num_negative_samples,
-        )
         self.n_sampled = len(self.centers)
+        self.scanned_node_id = next_scanned_node_id % self.n_nodes
         self.sample_id = 0
 
-
-class ModularityEmbeddingDataset(NegativeSamplingDataset):
-    def __init__(self, **params):
-        super(ModularityEmbeddingDataset, self).__init__(**params)
-        self.center, self.cont, self.y = None, None, None
-
-    def __getitem__(self, idx):
-        pow = 1
-        if self.center is None:
-            center, cont, y = super(ModularityEmbeddingDataset, self).__getitem__(idx)
-            if y == 1:
-                self.center, self.cont, self.y = center, cont, y
-                center = np.random.choice(self.n_elements)
-                cont = np.random.choice(self.n_elements)
-                y = -0.5
-                pow = 2
-        else:
-            center, cont, y = self.center, self.cont, self.y
-            self.center, self.cont, self.y = None, None, None
-        return center, cont, y, pow
-
-
-@njit(nogil=True)
-def count_center_context_pairs(window, seq_len, context_window_type):
-    # Count the number of center-context pairs.
-    # Suppose that we sample, for each center word, a context word that proceeds the center k-words.
-    # There are T-k words in the sequence, so that the number of pairs is given by summing this over k upto min(T-1, L), i.e.,
-    # 2 \sum_{k=1}^{min(T-1, L)} (T-k)
-    # where we cap the upper range to T-1 in case that the window covers the entire sentence, and
-    # we double the sum because the word window extends over both proceeding and succeeding words.
-    min_window = np.minimum(window, seq_len - 1)
-    n = 2 * min_window * seq_len - min_window * (min_window + 1)
-    if context_window_type == "double":
-        return int(n)
-    else:
-        return int(n / 2)
-
-
-@njit(nogil=True)
-def _get_center_context_pairs(seq, window, context_window_type):
-    """Get center-context pairs from sequence.
-    :param seq: Sequence
-    :type seq: numpy array
-    :param window_length: Length of the context window
-    :type window_length: int
-    :return: Center, context pairs
-    :rtype: tuple
+def _get_center_context(
+    context_window_type, walks, n_walks, walk_len, window_length, padding_id
+):
+    """Get center and context pairs from a sequence
+    window_type = {-1,0,1} specifies the type of context window.
+    window_type = 0 specifies a context window of length window_length that extends both
+    left and right of a center word. window_type = -1 and 1 specifies a context window
+    that extends either left or right of a center word, respectively.
     """
-    n_seq = len(seq)
-    n_pairs = count_center_context_pairs(window, n_seq, context_window_type)
-    centers = -np.ones(n_pairs, dtype=np.int64)
-    contexts = -np.ones(n_pairs, dtype=np.int64)
-    idx = 0
-    wstart, wend = 0, 2 * window + 1
-    if context_window_type == "suc":
-        wstart = window + 1
-    if context_window_type == "prec":
-        wend = window
+    if context_window_type == 0:
+        center, context = _get_center_double_context_windows(
+            walks, n_walks, walk_len, window_length, padding_id
+        )
+    elif context_window_type == -1:
+        center, context = _get_center_single_context_window(
+            walks, n_walks, walk_len, window_length, padding_id, is_left_window=True
+        )
+    elif context_window_type == 1:
+        center, context = _get_center_single_context_window(
+            walks, n_walks, walk_len, window_length, padding_id, is_left_window=False
+        )
+    else:
+        raise ValueError("Unknown window type")
+    # center = np.outer(center, np.ones(context.shape[1]))
+    # center, context = center.reshape(-1), context.reshape(-1)
+    # s = (center != padding_id) * (context != padding_id)
+    # center, context = center[s], context[s]
+    # order = np.arange(len(center))
+    # random.shuffle(order)
+    # return center[order].astype(int), context[order].astype(int)
+    return center.astype(int), context.astype(int)
 
-    for i in range(n_seq):
-        for j in range(wstart, wend):
-            if (j != window) and (i - window + j >= 0) and (i - window + j < n_seq):
-                centers[idx] = seq[i]
-                contexts[idx] = seq[i - window + j]
-                idx += 1
+
+@njit(nogil=True)
+def _get_center_double_context_windows(
+    walks, n_walks, walk_len, window_length, padding_id
+):
+    centers = padding_id * np.ones(n_walks * walk_len, dtype=np.int64)
+    contexts = padding_id * np.ones(
+        (n_walks * walk_len, 2 * window_length), dtype=np.int64
+    )
+    for t_walk in range(walk_len):
+        start, end = n_walks * t_walk, n_walks * (t_walk + 1)
+        centers[start:end] = walks[:, t_walk]
+
+        for i in range(window_length):
+            if t_walk - 1 - i < 0:
+                break
+            contexts[start:end, window_length - 1 - i] = walks[:, t_walk - 1 - i]
+
+        for i in range(window_length):
+            if t_walk + 1 + i >= walk_len:
+                break
+            contexts[start:end, window_length + i] = walks[:, t_walk + 1 + i]
+
+    return centers, contexts
+
+
+@njit(nogil=True)
+def _get_center_single_context_window(
+    walks, n_walks, walk_len, window_length, padding_id, is_left_window=True
+):
+    centers = padding_id * np.ones(n_walks * walk_len, dtype=np.int64)
+    contexts = padding_id * np.ones((n_walks * walk_len, window_length), dtype=np.int64)
+    for t_walk in range(walk_len):
+        start, end = n_walks * t_walk, n_walks * (t_walk + 1)
+        centers[start:end] = walks[:, t_walk]
+
+        if is_left_window:
+            for i in range(window_length):
+                if t_walk - 1 - i < 0:
+                    break
+                contexts[start:end, window_length - 1 - i] = walks[:, t_walk - 1 - i]
+        else:
+            for i in range(window_length):
+                if t_walk + 1 + i >= walk_len:
+                    break
+                contexts[start:end, i] = walks[:, t_walk + 1 + i]
     return centers, contexts

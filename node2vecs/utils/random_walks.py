@@ -1,14 +1,14 @@
+# -*- coding: utf-8 -*-
+# @Author: Sadamori Kojaku
+# @Date:   2022-10-14 14:33:29
+# @Last Modified by:   Sadamori Kojaku
+# @Last Modified time: 2022-10-18 07:06:36
 import numpy as np
 from scipy import sparse
 from numba import njit
 from collections.abc import Iterable
-from torch.utils.data import Dataset
 
 
-
-#
-# Walk sampler
-#
 class RandomWalkSampler:
     """Module for generating a sentence using random walks.
     .. highlight:: python
@@ -20,12 +20,10 @@ class RandomWalkSampler:
         >>> print(walk) # [12, 11, 10, 9, ...]
     """
 
-    def __init__(self, adjmat, walk_length=40, num_walks = 10, p=1, q=1):
+    def __init__(self, adjmat, walk_length=40, p=1, q=1, padding_id=-1):
         """Random Walk Sampler.
         :param adjmat: Adjacency matrix of the graph.
         :type adjmat: scipy sparse matrix format (csr).
-        :param num_walks: number of walkers per node, defaults to 10
-        :type num_walks: int, optional
         :param walk_length: length per walk, defaults to 40
         :type walk_length: int, optional
         :param p: node2vec parameter p (1/p is the weights of the edge to previously visited node), defaults to 1
@@ -34,13 +32,12 @@ class RandomWalkSampler:
         :type q: float, optional
         """
         self.walk_length = walk_length
-        self.num_walks = num_walks
         self.p = p
         self.q = q
+        self.padding_id = padding_id
         self.weighted = (~np.isclose(np.min(adjmat.data), 1)) or (
             ~np.isclose(np.max(adjmat.data), 1)
         )
-        self.num_nodes = adjmat.shape[0]
 
         adjmat.sort_indices()
         self.indptr = adjmat.indptr.astype(np.int64)
@@ -49,37 +46,13 @@ class RandomWalkSampler:
             data = adjmat.data / adjmat.sum(axis=1).A1.repeat(np.diff(self.indptr))
             self.data = _csr_row_cumsum(self.indptr, data)
 
-    def __iter__(self):
-        for i in range(self.num_walks):
-            for node_id in np.random.choice(self.num_nodes, size=self.num_nodes, replace=False):
-                yield self._sampling(node_id).tolist()
-
-    def __len__(self):
-        return self.num_walks * self.num_walks
-
-    def sampling(self, start = None, num_walks = None):
-
-        if num_walks is None:
-            num_walks = self.num_walks
-
-        if start is None:
-            start = np.arange(self.n_nodes, dtype=np.int64)
-
-        if isinstance(start, Iterable):
-           # iterable
-           walks = [self._sampling(s) for _ in range(num_walks) for s in start]
-        else:
-           walks = [self._sampling(start) for _ in range(num_walks)]
-        return walks
-
-    def _sampling(self, start):
+    def sampling(self, start):
         """Sample a random walk path.
         :param start: ID of the starting node
         :type start: int
         :return: array of visiting nodes
         :rtype: np.ndarray
         """
-        padding_id = -1
         if self.weighted:
             walk = _random_walk_weighted(
                 self.indptr,
@@ -88,8 +61,8 @@ class RandomWalkSampler:
                 self.walk_length,
                 self.p,
                 self.q,
-                padding_id=padding_id,
-                ts=start
+                self.padding_id,
+                start
                 if isinstance(start, Iterable)
                 else np.array([start]).astype(np.int64),
             )
@@ -100,26 +73,15 @@ class RandomWalkSampler:
                 self.walk_length,
                 self.p,
                 self.q,
-                padding_id=padding_id,
-                ts=start
+                self.padding_id,
+                start
                 if isinstance(start, Iterable)
                 else np.array([start]).astype(np.int64),
             )
-        walk = walk.astype(np.int64)
-        walk = get_walk_seq(walk, walk.shape[0], walk.shape[1], padding_id=padding_id)
         if isinstance(start, Iterable):
-            return walk
+            return walk.astype(np.int64)
         else:
-            return walk[0]
-
-
-@njit(nogil=True)
-def get_walk_seq(walks, n_walks, n_steps, padding_id):
-    retval = []
-    for i in range(n_walks):
-        w = walks[i, :]
-        retval.append(w[w != padding_id])
-    return retval
+            return walk[0].astype(np.int64)
 
 
 @njit(nogil=True)
@@ -193,19 +155,18 @@ def _random_walk_weighted(indptr, indices, data, walk_length, p, q, padding_id, 
         ]
         for j in range(2, walk_length):
             neighbors = _neighbors(indptr, indices, walk[walk_id, j - 1])
+            neighbors = _neighbors(indptr, indices, t)
             if len(neighbors) == 0:
                 break
-            neighbors_weight = _neighbors(indptr, data, walk[walk_id, j - 1])
+            neighbors_p = _neighbors(indptr, data, walk[walk_id, j - 1])
             if p == q == 1:
                 # faster version
                 walk[walk_id, j] = neighbors[
-                    np.searchsorted(neighbors_weight, np.random.rand())
+                    np.searchsorted(neighbors_p, np.random.rand())
                 ]
                 continue
             while True:
-                new_node = neighbors[
-                    np.searchsorted(neighbors_weight, np.random.rand())
-                ]
+                new_node = neighbors[np.searchsorted(neighbors_p, np.random.rand())]
                 r = np.random.rand()
                 if new_node == walk[walk_id, j - 2]:
                     if r < prob_0:
@@ -221,6 +182,114 @@ def _random_walk_weighted(indptr, indices, data, walk_length, p, q, padding_id, 
     return walk
 
 
+#
+# Homogenize the data format
+#
+def to_adjacency_matrix(net):
+    """Convert to the adjacency matrix in form of sparse.csr_matrix.
+
+    :param net: adjacency matrix
+    :type net: np.ndarray or csr_matrix
+    :return: adjacency matrix
+    :rtype: sparse.csr_matrix
+    """
+    if sparse.issparse(net):
+        if type(net) == "scipy.sparse.csr.csr_matrix":
+            return net
+        return sparse.csr_matrix(net)
+    elif "numpy.ndarray" == type(net):
+        return sparse.csr_matrix(net)
+    else:
+        ValueError("Unexpected data type {} for the adjacency matrix".format(type(net)))
+
+
+def row_normalize(mat):
+    """Normalize the matrix row-wise.
+
+    :param mat: matrix
+    :type mat: sparse.csr_matrix
+    :return: row normalized matrix
+    :rtype: sparse.csr_matrix
+    """
+    denom = np.array(mat.sum(axis=1)).reshape(-1).astype(float)
+    return sparse.diags(1.0 / np.maximum(denom, 1e-32), format="csr") @ mat
+
+
+def to_member_matrix(group_ids, node_ids=None, shape=None):
+    """Create the binary member matrix U such that U[i,k] = 1 if i belongs to group k otherwise U[i,k]=0.
+
+    :param group_ids: group membership of nodes. group_ids[i] indicates the ID (integer) of the group to which i belongs.
+    :type group_ids: np.ndarray
+    :param node_ids: IDs of the node. If not given, the node IDs are the index of `group_ids`, defaults to None.
+    :type node_ids: np.ndarray, optional
+    :param shape: Shape of the member matrix. If not given, (len(group_ids), max(group_ids) + 1), defaults to None
+    :type shape: tuple, optional
+    :return: Membership matrix
+    :rtype: sparse.csr_matrix
+    """
+    if node_ids is None:
+        node_ids = np.arange(len(group_ids))
+
+    if shape is not None:
+        Nr = int(np.max(node_ids) + 1)
+        Nc = int(np.max(group_ids) + 1)
+        shape = (Nr, Nc)
+    U = sparse.csr_matrix(
+        (np.ones_like(group_ids), (node_ids, group_ids)),
+        shape=shape,
+    )
+    U.data = U.data * 0 + 1
+    return U
+
+
+def matrix_sum_power(A, T):
+    """Take the sum of the powers of a matrix, i.e.,
+
+    sum_{t=1} ^T A^t.
+
+    :param A: Matrix to be powered
+    :type A: np.ndarray
+    :param T: Maximum order for the matrixpower
+    :type T: int
+    :return: Powered matrix
+    :rtype: np.ndarray
+    """
+    At = np.eye(A.shape[0])
+    As = np.zeros((A.shape[0], A.shape[0]))
+    for _ in range(T):
+        At = A @ At
+        As += At
+    return As
+
+
+def pairing(k1, k2, unordered=False):
+    """Cantor pairing function
+    http://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function."""
+    k12 = k1 + k2
+    if unordered:
+        return (k12 * (k12 + 1)) * 0.5 + np.minimum(k1, k2)
+    else:
+        return (k12 * (k12 + 1)) * 0.5 + k2
+
+
+def depairing(z):
+    """Inverse of Cantor pairing function http://en.wikipedia.org/wiki/Pairing_
+    function#Inverting_the_Cantor_pairing_function."""
+    w = np.floor((np.sqrt(8 * z + 1) - 1) * 0.5)
+    t = (w**2 + w) * 0.5
+    y = np.round(z - t).astype(np.int64)
+    x = np.round(w - y).astype(np.int64)
+    return x, y
+
+
+def safe_log(A, minval=1e-12):
+    if sparse.issparse(A):
+        A.data = np.log(np.maximum(A.data, minval))
+        return A
+    else:
+        return np.log(np.maximum(A, minval))
+
+
 @njit(nogil=True)
 def _csr_row_cumsum(indptr, data):
     out = np.empty_like(data)
@@ -233,13 +302,21 @@ def _csr_row_cumsum(indptr, data):
     return out
 
 
+def csr_sampling(rows, csr_mat):
+    return _csr_sampling(rows, csr_mat.indptr, csr_mat.indices, csr_mat.data)
+
+
 @njit(nogil=True)
-def get_shortest_path(Pr, i, j):
-    path = [j]
-    k = j
-    for it in range(100):
-        if Pr[i, k] == -9999:
-            break
-        path.append(Pr[i, k])
-        k = Pr[i, k]
-    return path[::-1]
+def _neighbors(indptr, indices_or_data, t):
+    return indices_or_data[indptr[t] : indptr[t + 1]]
+
+
+@njit(nogil=True)
+def _csr_sampling(rows, indptr, indices, data):
+    n = len(rows)
+    retval = np.empty(n, dtype=indices.dtype)
+    for j in range(n):
+        neighbors = _neighbors(indptr, indices, rows[j])
+        neighbors_p = _neighbors(indptr, data, rows[j])
+        retval[j] = neighbors[np.searchsorted(neighbors_p, np.random.rand())]
+    return retval

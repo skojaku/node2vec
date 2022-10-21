@@ -1,4 +1,10 @@
+# -*- coding: utf-8 -*-
+# @Author: Sadamori Kojaku
+# @Date:   2022-10-14 14:33:29
+# @Last Modified by:   Sadamori Kojaku
+# @Last Modified time: 2022-10-18 23:54:31
 from .utils.random_walks import RandomWalkSampler
+from .utils.node_sampler import ConfigModelNodeSampler
 from scipy import sparse
 import numpy as np
 
@@ -32,7 +38,7 @@ class Node2Vec:
         ns_exponent=0.75,  # exponent for negative sampling
         alpha=0.025,  # learning rate
         epochs=1,  # epochs
-        negative=5,  # number of negative samples per positive sample
+        negative=1,  # number of negative samples per positive sample
     ):
         self.in_vec = None  # In-vector
         self.out_vec = None  # Out-vector
@@ -40,7 +46,6 @@ class Node2Vec:
             "p": p,
             "q": q,
             "walk_length": walk_length,
-            "num_walks":num_walks,
         }
         self.ns_exponent = ns_exponent
         self.alpha = alpha
@@ -58,6 +63,8 @@ class Node2Vec:
         net = self.homogenize_net_data_type(net)
         self.num_nodes = net.shape[0]
         self.sampler = RandomWalkSampler(net, **self.rw_params)
+        self.noise_sampler = ConfigModelNodeSampler(ns_exponent=self.ns_exponent)
+        self.noise_sampler.fit(net)
 
     def transform(self, vector_size=None, return_out_vector=False):
         """Compute the coordinates of nodes in the embedding space of the
