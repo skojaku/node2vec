@@ -34,29 +34,58 @@ import numpy as np
 
 n_nodes = A.shape[0]
 dim = 32
+        self.noise_sampler.fit(net)
 
-# Generate data to train word2vec
+# Specify the sentense generator. 
+# The sentence generator has ``sampling'' method which 
+# generates a sequence of nodes for training word2vec.
 sampler = node2vecs.RandomWalkSampler(A, walk_length = 80)
-walks = sampler.sampling(n_walks = 10)
+
+# Negative node sampler used in negative sampling
+# The default is ConfigModelNodeSampler which samples a node 
+# with probability proportional to it's degree.
+# Changing noise sampler is useful to debias embedding. 
+# utils.node_sampler has different noise sampler.
+# See residual2vec paper.
+noise_sampler = ConfigModelNodeSampler(ns_exponent=1.0)
 
 # Word2Vec model
-model = node2vecs.Word2Vec(n_nodes = n_nodes, dim = dim)
+model = node2vecs.Word2Vec(vocab_size = n_nodes, embedding_size= dim, padding_idx = n_nodes)
+
+# Loss function
+loss_func = Node2VecTripletLoss(n_neg=self.negative)
 
 # Set up negative sampler
-dataset = node2vecs.NegativeSamplingDataset(
-    seqs=walks,
-    window=10,
-    epochs=1,
+dataset = TripletDataset(
+    adjmat=A,
+    window_length=10,
+    noise_sampler=noise_sampler,
+    padding_id=n_nodes,
+    buffer_size=10e4,
     context_window_type="double", # we can limit the window to cover either side of center words.
-    ns_exponent = 1 # exponent of negative sampling
+    epochs=5, # number of epochs
+    negative=1, # number of negative node per context
+    p = 1, # (inverse) weight for the probability of backtracking walks 
+    q = 1, # (inverse) weight for the probability of depth-first walks 
+    walk_length = 80 # Length of walks
 )
 
 # Set up the loss function
 loss_func = node2vecs.TripletLoss(model)
 
 # Train
-node2vecs.train(model = model, dataset = dataset, loss_func = loss_func, batch_size = 10000, device="cpu")
-emb = model.embedding()
+train(
+    model=model,
+    dataset=dataset,
+    loss_func=loss_func,
+    batch_size=256 * 4,
+    device="cpu", # gpu is also available
+    learning_rate=1e-3,
+    num_workers=4,
+)
+model.eval()
+in_vec = model.ivectors.weight.data.cpu().numpy()[:n_nodes, :] # in_vector
+out_vec = model.ovectors.weight.data.cpu().numpy()[:n_nodes, :] # out_vector
 ```
 
 ## PytorchGeometric Implementation
