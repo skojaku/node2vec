@@ -5,7 +5,7 @@ from os import path
 
 from setuptools import find_packages, setup
 
-__version__ = "0.0.0"
+__version__ = "0.0.1"
 
 
 def load_requires_from_file(fname):
@@ -39,4 +39,14 @@ setup(
         "Programming Language :: Python :: 3.8",
     ],
     keywords="embedding",
+    install_requires=[
+        'numpy',
+        'pandas',
+        'scikit-learn',
+        'scipy',
+        'numba',
+        'torch',
+        'tqdm',
+        'faiss-cpu',
+    ]
 )
