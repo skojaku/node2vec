@@ -2,7 +2,7 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-18 07:06:36
+# @Last Modified time: 2022-10-24 23:37:45
 import numpy as np
 from scipy import sparse
 from numba import njit
@@ -155,7 +155,6 @@ def _random_walk_weighted(indptr, indices, data, walk_length, p, q, padding_id, 
         ]
         for j in range(2, walk_length):
             neighbors = _neighbors(indptr, indices, walk[walk_id, j - 1])
-            neighbors = _neighbors(indptr, indices, t)
             if len(neighbors) == 0:
                 break
             neighbors_p = _neighbors(indptr, data, walk[walk_id, j - 1])

@@ -2,7 +2,7 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-17 22:23:22
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-19 13:08:54
+# @Last Modified time: 2022-10-24 23:06:08
 """Graph module to store a network and generate random walks from it."""
 import numpy as np
 from scipy import sparse
@@ -130,10 +130,7 @@ class ErdosRenyiNodeSampler(SBMNodeSampler):
 class ConditionalContextSampler(NodeSampler):
     """Node Sampler conditioned on group membership."""
 
-    def __init__(
-        self,
-        group_membership,
-    ):
+    def __init__(self, group_membership, padding_id=None):
         """Node Sampler conditioned on group membership.
         :param window_length: length of the context window, defaults to 10
         :type window_length: int, optional
@@ -155,6 +152,7 @@ class ConditionalContextSampler(NodeSampler):
             ),
             shape=(k, n),
         )
+        self.padding_id = n
 
     def fit(self, A):
         # Assuming that context is sampled from a random walk
@@ -163,10 +161,16 @@ class ConditionalContextSampler(NodeSampler):
         self.block2node.data = _csr_row_cumsum(
             self.block2node.indptr, self.block2node.data
         )
+        self.block2node = sparse.csr_matrix(self.block2node)
         return
 
     def sampling(self, center_nodes, context_nodes):
-        context = csr_sampling(self.group_membership[context_nodes], self.block2node)
+        context = self.padding_id * np.ones_like(context_nodes)
+        s = context_nodes != self.padding_id
+        n = np.sum(s)
+        context[s] = csr_sampling(
+            self.group_membership[context_nodes[s]], self.block2node
+        )
         return context.astype(np.int64)
 
 
@@ -277,9 +281,12 @@ def safe_log(A, minval=1e-12):
 def _csr_row_cumsum(indptr, data):
     out = np.empty_like(data)
     for i in range(len(indptr) - 1):
+        denom = 0
+        for j in range(indptr[i], indptr[i + 1]):
+            denom += data[j]
         acc = 0
         for j in range(indptr[i], indptr[i + 1]):
-            acc += data[j]
+            acc += data[j] / denom
             out[j] = acc
         out[j] = 1.0
     return out

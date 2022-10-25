@@ -2,7 +2,7 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-19 13:09:54
+# @Last Modified time: 2022-10-24 22:56:34
 import random
 
 import numpy as np
@@ -116,21 +116,51 @@ class TripletDataset(Dataset):
             padding_id=self.padding_id,
         )
         s = self.centers != self.padding_id
+
         self.centers, self.contexts = self.centers[s], self.contexts[s, :]
         self.random_contexts = np.hstack(
             [
                 self.noise_sampler.sampling(
                     center_nodes=self.centers,
-                    context_nodes=self.contexts,
+                    context_nodes=self.contexts[:, i],
                     # padding_id=self.padding_id,
                 ).reshape((-1, 1))
-                for _ in range(self.negative * self.contexts.shape[1])
+                for i in range(self.negative * self.contexts.shape[1])
             ]
         )
 
         self.n_sampled = len(self.centers)
         self.scanned_node_id = next_scanned_node_id % self.n_nodes
         self.sample_id = 0
+
+        # Shuffle
+        # ids = np.arange(self.n_sampled, dtype=int)
+        # np.random.shuffle(ids)
+        # self.centers, self.contexts, self.random_contexts = (
+        #    self.centers[ids],
+        #    self.contexts[ids],
+        #    self.random_contexts[ids],
+        # )
+
+
+class ModularityDataset(TripletDataset):
+    def __init__(self, **params):
+        super().__init__(**params)
+
+    def __getitem__(self, idx):
+        if self.sample_id == self.n_sampled:
+            self._generate_samples()
+
+        center = self.centers[self.sample_id].astype(np.int64)
+        cont = self.contexts[self.sample_id, :].astype(np.int64)
+        rand_cont = self.random_contexts[self.sample_id, :].astype(np.int64)
+        base_center = np.random.randint(0, self.n_nodes, size=center.shape)
+        base_cont = np.random.randint(0, self.n_nodes, size=cont.shape)
+
+        self.sample_id += 1
+
+        return center, cont, rand_cont, base_center, base_cont
+
 
 def _get_center_context(
     context_window_type, walks, n_walks, walk_len, window_length, padding_id
