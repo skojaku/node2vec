@@ -48,5 +48,6 @@ setup(
         'torch',
         'tqdm',
         'faiss-cpu',
+        "gensim",
     ]
 )
