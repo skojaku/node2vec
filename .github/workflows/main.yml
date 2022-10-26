@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip wheel setuptools
-          pip install -r requirements.txt
+          pip install "git+https://github.com/skojaku/node2vec.git"
       - name: Unit Test
         run: |
           pip install networkx
