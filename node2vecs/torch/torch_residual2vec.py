@@ -17,9 +17,10 @@ from torch.optim import AdamW, Adam, SGD, SparseAdam
 from torch.utils.data import DataLoader
 
 
-class TorchNode2Vec(Node2Vec):
+class TorchResidual2Vec(Node2Vec):
     def __init__(
         self,
+        noise_sampler,
         batch_size=256,
         device="cpu",
         buffer_size=100000,
@@ -31,6 +32,8 @@ class TorchNode2Vec(Node2Vec):
         **params,
     ):
         """Residual2Vec based on the stochastic gradient descent.
+        :param noise_sampler: Noise sampler
+        :type noise_sampler: NodeSampler
         :param window_length: length of the context window, defaults to 10
         :type window_length: int
         :param batch_size: Number of batches for the SGD, defaults to 4
@@ -51,7 +54,10 @@ class TorchNode2Vec(Node2Vec):
         :type miniter: int, optional
         """
         super().__init__(**params)
-        self.noise_sampler = ConfigModelNodeSampler(self.ns_exponent)
+        if noise_sampler is None:
+            self.noise_sampler = ConfigModelNodeSampler(self.ns_exponent)
+        else:
+            self.noise_sampler = noise_sampler
 
         self.device = device
         self.batch_size = batch_size
