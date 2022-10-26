@@ -2,7 +2,7 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-18 22:41:39
+# @Last Modified time: 2022-10-24 23:47:35
 """Word2Vec.
 This module is a modified version of the Word2Vec module in
 https://github.com/theeluwin/pytorch-sgn
@@ -19,10 +19,11 @@ from torch import FloatTensor, LongTensor
 
 
 class Word2Vec(nn.Module):
-    def __init__(self, vocab_size, embedding_size, padding_idx):
+    def __init__(self, vocab_size, embedding_size, padding_idx, learn_outvec=True):
         super(Word2Vec, self).__init__()
         self.vocab_size = vocab_size
         self.embedding_size = embedding_size
+        self.learn_outvec = learn_outvec
         self.ivectors = nn.Embedding(
             self.vocab_size + 1,
             self.embedding_size,
@@ -55,7 +56,10 @@ class Word2Vec(nn.Module):
     def forward_o(self, data):
         # v = LongTensor(data)
         # v = v.cuda() if self.ovectors.weight.is_cuda else v
-        return self.ovectors(data)
+        if self.learn_outvec:
+            return self.ovectors(data)
+        else:
+            return self.ivectors(data)
 
     def embedding(self, return_out_vector=False):
         if return_out_vector is False:

@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # @Author: Sadamori Kojaku
-# @Date:   2022-10-15 21:04:03
+# @Date:   2022-10-14 14:38:28
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-24 23:48:37
+# @Last Modified time: 2022-10-19 07:09:39
 import numpy as np
 from . import utils
 from node2vecs.node2vec import Node2Vec
 from .models import Word2Vec
-from .loss import Node2VecTripletLoss
-from .dataset import TripletDataset
+from .loss import ModularityTripletLoss
+from .dataset import ModularityDataset
 from .train import train
 from node2vecs.utils.node_sampler import ConfigModelNodeSampler
 import torch
@@ -17,7 +17,7 @@ from torch.optim import AdamW, Adam, SGD, SparseAdam
 from torch.utils.data import DataLoader
 
 
-class TorchNode2Vec(Node2Vec):
+class TorchModularity(Node2Vec):
     def __init__(
         self,
         batch_size=256,
@@ -27,9 +27,7 @@ class TorchNode2Vec(Node2Vec):
         miniters=200,
         num_workers=1,
         alpha=1e-3,
-        noise_sampler=None,
-        learn_outvec=True,
-        **params,
+        **params
     ):
         """Residual2Vec based on the stochastic gradient descent.
         :param noise_sampler: Noise sampler
@@ -54,11 +52,7 @@ class TorchNode2Vec(Node2Vec):
         :type miniter: int, optional
         """
         super().__init__(**params)
-        if noise_sampler is None:
-            self.noise_sampler = ConfigModelNodeSampler(self.ns_exponent)
-        else:
-            self.noise_sampler = noise_sampler
-
+        self.noise_sampler = ConfigModelNodeSampler(self.ns_exponent)
         self.device = device
         self.batch_size = batch_size
         self.buffer_size = buffer_size
@@ -66,7 +60,6 @@ class TorchNode2Vec(Node2Vec):
         self.context_window_type = context_window_type
         self.num_workers = num_workers
         self.alpha = alpha
-        self.learn_outvec = learn_outvec
 
     def fit(self, adjmat):
         """Learn the graph structure to generate the node embeddings.
@@ -97,13 +90,10 @@ class TorchNode2Vec(Node2Vec):
         # Set up the embedding model
         PADDING_IDX = self.n_nodes
         model = Word2Vec(
-            vocab_size=self.n_nodes + 1,
-            embedding_size=dim,
-            padding_idx=PADDING_IDX,
-            learn_outvec=self.learn_outvec,
+            vocab_size=self.n_nodes + 1, embedding_size=dim, padding_idx=PADDING_IDX
         )
         model = model.to(self.device)
-        loss_func = Node2VecTripletLoss(n_neg=self.negative)
+        loss_func = ModularityTripletLoss(n_neg=self.negative)
 
         # Set up the Training dataset
         adjusted_num_walks = np.ceil(
@@ -116,7 +106,7 @@ class TorchNode2Vec(Node2Vec):
             )
         ).astype(int)
         self.rw_params["num_walks"] = adjusted_num_walks
-        dataset = TripletDataset(
+        dataset = ModularityDataset(
             adjmat=self.adjmat,
             window_length=self.window,
             noise_sampler=self.noise_sampler,
@@ -125,7 +115,7 @@ class TorchNode2Vec(Node2Vec):
             context_window_type=self.context_window_type,
             epochs=self.epochs,
             negative=self.negative,
-            **self.rw_params,
+            **self.rw_params
         )
 
         train(

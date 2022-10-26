@@ -44,7 +44,7 @@ import numpy as np
 
 n_nodes = A.shape[0]
 dim = 32
-self.noise_sampler.fit(net)
+
 
 # Specify the sentense generator. 
 # The sentence generator has ``sampling'' method which 
@@ -57,21 +57,22 @@ sampler = node2vecs.RandomWalkSampler(A, walk_length = 80)
 # Changing noise sampler is useful to debias embedding. 
 # utils.node_sampler has different noise sampler.
 # See residual2vec paper.
-noise_sampler = ConfigModelNodeSampler(ns_exponent=1.0)
+noise_sampler = node2vecs.ConfigModelNodeSampler(ns_exponent=1.0)
+noise_sampler.fit(A)
 
 # Word2Vec model
 model = node2vecs.Word2Vec(vocab_size = n_nodes, embedding_size= dim, padding_idx = n_nodes)
 
 # Loss function
-loss_func = Node2VecTripletLoss(n_neg=self.negative)
+loss_func = node2vecs.Node2VecTripletLoss(n_neg=1)
 
 # Set up negative sampler
-dataset = TripletDataset(
+dataset = node2vecs.TripletDataset(
     adjmat=A,
     window_length=10,
     noise_sampler=noise_sampler,
     padding_id=n_nodes,
-    buffer_size=10e4,
+    buffer_size=1e4,
     context_window_type="double", # we can limit the window to cover either side of center words. `context_window_type="double"` specifies a context window that extends both left and right of a focal node. context_window_type="left" or ="right" specifies that the window extends left or right, respectively.
     epochs=5, # number of epochs
     negative=1, # number of negative node per context
@@ -84,7 +85,7 @@ dataset = TripletDataset(
 loss_func = node2vecs.TripletLoss(model)
 
 # Train
-train(
+node2vecs.train(
     model=model,
     dataset=dataset,
     loss_func=loss_func,
