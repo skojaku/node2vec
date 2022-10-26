@@ -1,6 +1,16 @@
 [![Unit Test & Deploy](https://github.com/skojaku/node2vecs/actions/workflows/main.yml/badge.svg)](https://github.com/skojaku/node2vecs/actions/workflows/main.yml)
 
+# Install 
+
+```bash 
+git clone https://github.com/skojaku/node2vec.git
+cd node2vec
+pip install -e .
+```
+
+
 # Node2Vecs
+
 
 ## Gensim Implementation
 
