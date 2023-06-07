@@ -2,7 +2,7 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-24 22:56:34
+# @Last Modified time: 2023-06-07 17:24:27
 import random
 
 import numpy as np
@@ -105,7 +105,7 @@ class TripletDataset(Dataset):
             self.scanned_node_id + self.buffer_size, self.n_nodes
         )
         walks = self.rw_sampler.sampling(
-            self.node_order[self.scanned_node_id : next_scanned_node_id]
+            self.node_order[int(self.scanned_node_id) : int(next_scanned_node_id)]
         )
         self.centers, self.contexts = _get_center_context(
             context_window_type=self.context_window_type,

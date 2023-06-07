@@ -2,10 +2,11 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-19 12:59:28
+# @Last Modified time: 2023-06-07 17:28:01
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 
 #
 # Loss function
@@ -23,7 +24,7 @@ class Node2VecTripletLoss(nn.Module):
         oloss = self.logsigmoid(torch.bmm(ovectors, ivectors).squeeze()).mean(dim=1)
         nloss = (
             self.logsigmoid(torch.bmm(nvectors, ivectors).squeeze())
-            .view(-1, owords.size()[1], self.n_neg)
+            .view((-1, owords.size()[1], self.n_neg))
             .sum(dim=2)
             .mean(dim=1)
         )

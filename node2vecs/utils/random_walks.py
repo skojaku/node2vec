@@ -2,7 +2,7 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2023-06-07 17:17:00
+# @Last Modified time: 2023-06-07 17:22:54
 import numpy as np
 from scipy import sparse
 from numba import njit
@@ -46,6 +46,7 @@ class RandomWalkSampler:
             data = adjmat.data / np.array(adjmat.sum(axis=1)).reshape(-1).repeat(
                 np.diff(self.indptr)
             )
+            adjmat.data = data
             self.data = _csr_row_cumsum(self.indptr, data)
 
     def sampling(self, start):
