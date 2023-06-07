@@ -2,7 +2,7 @@
 # @Author: Sadamori Kojaku
 # @Date:   2022-10-14 14:33:29
 # @Last Modified by:   Sadamori Kojaku
-# @Last Modified time: 2022-10-24 23:37:45
+# @Last Modified time: 2023-06-07 17:17:00
 import numpy as np
 from scipy import sparse
 from numba import njit
@@ -43,7 +43,9 @@ class RandomWalkSampler:
         self.indptr = adjmat.indptr.astype(np.int64)
         self.indices = adjmat.indices.astype(np.int64)
         if self.weighted:
-            data = adjmat.data / adjmat.sum(axis=1).A1.repeat(np.diff(self.indptr))
+            data = adjmat.data / np.array(adjmat.sum(axis=1)).reshape(-1).repeat(
+                np.diff(self.indptr)
+            )
             self.data = _csr_row_cumsum(self.indptr, data)
 
     def sampling(self, start):
